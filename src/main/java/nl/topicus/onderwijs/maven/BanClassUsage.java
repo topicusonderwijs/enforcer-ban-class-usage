@@ -25,12 +25,15 @@ public class BanClassUsage extends AbstractResolveDependencies
 
 	private List<Dependency> dependencies;
 
+	private List<String> scopes;
+
 	@Override
 	protected void handleArtifacts(Set<Artifact> artifacts) throws EnforcerRuleException
 	{
 		List<IgnorableDependency> ignorableDependencies = new ArrayList<>();
 		if (dependencies != null)
 		{
+			getLog().info("BanClassUsage has ignorable dependencies");
 			for (Dependency dependency : dependencies)
 			{
 				getLog().info("Adding ignorable dependency: " + dependency);
@@ -60,24 +63,32 @@ public class BanClassUsage extends AbstractResolveDependencies
 
 		StopWatch sw = new StopWatch();
 		sw.start();
-		boolean error = false;
+		StringBuilder error = new StringBuilder();
 		for (Artifact artifact : artifacts)
 		{
+			if (scopes != null && !scopes.contains(artifact.getScope()))
+			{
+				if (getLog().isDebugEnabled())
+				{
+					getLog().debug("Skipping " + artifact + " due to scope");
+				}
+				continue;
+			}
+
 			getLog().debug("Analyzing artifact " + artifact);
 			Set<String> banned = getBannedClasses(artifact, ignorableDependencies);
 			if (!banned.isEmpty())
 			{
-				getLog().warn("Banned classes found in " + artifact.toString());
-				banned.forEach(s -> getLog().warn("  " + s));
-				error = true;
+				error.append("\n  Banned classes found in " + artifact.toString() + ":\n");
+				banned.forEach(s -> error.append("    " + s + "\n"));
 			}
 		}
 		sw.stop();
 		getLog().debug("BanClassUsage took " + sw.getTime() + "ms");
-		if (error)
+		if (error.length() > 0)
 		{
 			throw new EnforcerRuleException(
-				"One or more dependencies use classes that are banned.");
+				"One or more dependencies use classes that are banned:\n" + error.toString());
 		}
 	}
 
