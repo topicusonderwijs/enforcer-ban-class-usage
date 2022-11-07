@@ -12,7 +12,6 @@ import java.util.function.Predicate;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.model.InputSource;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.MethodVisitor;
 
 public class CollectorTest<T extends ClassReader> implements Predicate<T>
 {
@@ -49,8 +48,10 @@ public class CollectorTest<T extends ClassReader> implements Predicate<T>
 	@Test2
 	private @Test1(z = ElementType.PACKAGE) int field;
 
+	@SuppressWarnings("unused")
 	private Function< ? extends List< ? >, Map<String, Boolean>> field2;
 
+	@SuppressWarnings("unused")
 	@Test1(type = X.class, nested = {@Test2("5")}, z = ElementType.TYPE_USE)
 	public static void main(String[] args) throws Exception
 	{
