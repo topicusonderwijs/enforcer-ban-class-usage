@@ -128,6 +128,10 @@ public class BanClassUsage extends AbstractResolveDependencies
 								classname -> isBanned(artifact, classname, ignorableDependencies))
 							.forEach(ret::add);
 					}
+					catch (Exception e)
+					{
+						getLog().warn("Skipping " + entry.getName() + " due to " + e.getMessage());
+					}
 				}
 			}
 		}

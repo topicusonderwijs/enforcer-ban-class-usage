@@ -4,3 +4,4 @@ target
 .classpath
 rebel.xml
 bin
+/.apt_generated_tests/
