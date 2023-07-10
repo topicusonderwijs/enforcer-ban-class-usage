@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>nl.topicus.onderwijs.parent</groupId>
 		<artifactId>onderwijs-parent-base</artifactId>
-		<version>2023.4.7</version>
+		<version>2023.6.1</version>
 		<relativePath />
 	</parent>
 
@@ -96,7 +96,7 @@
 			<dependency>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>extra-enforcer-rules</artifactId>
-				<version>1.6.2</version>
+				<version>1.7.0</version>
 				<exclusions>
 					<exclusion>
 						<groupId>org.eclipse.aether</groupId>
@@ -112,6 +112,10 @@
 	</dependencyManagement>
 
 	<dependencies>
+		<dependency>
+			<groupId>jakarta.inject</groupId>
+			<artifactId>jakarta.inject-api</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.maven</groupId>
 			<artifactId>maven-core</artifactId>

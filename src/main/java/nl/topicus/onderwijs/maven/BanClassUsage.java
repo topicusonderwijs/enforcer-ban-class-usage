@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -12,14 +13,28 @@ import java.util.jar.JarFile;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import javax.inject.Inject;
+import javax.inject.Named;
+
 import org.apache.commons.lang3.time.StopWatch;
+import org.apache.maven.RepositoryUtils;
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.enforcer.rule.api.AbstractEnforcerRule;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
-import org.apache.maven.plugins.enforcer.AbstractResolveDependencies;
-import org.codehaus.mojo.enforcer.Dependency;
+import org.apache.maven.execution.MavenSession;
+import org.apache.maven.project.DefaultProjectBuildingRequest;
+import org.apache.maven.project.ProjectBuildingRequest;
+import org.apache.maven.shared.dependency.graph.DependencyGraphBuilder;
+import org.apache.maven.shared.dependency.graph.DependencyGraphBuilderException;
+import org.apache.maven.shared.dependency.graph.DependencyNode;
+import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.resolution.ArtifactRequest;
+import org.eclipse.aether.resolution.ArtifactResolutionException;
+import org.eclipse.aether.resolution.ArtifactResult;
 import org.objectweb.asm.ClassReader;
 
-public class BanClassUsage extends AbstractResolveDependencies
+@Named("banClassUsage")
+public class BanClassUsage extends AbstractEnforcerRule
 {
 	private List<String> bannedClasses;
 
@@ -27,7 +42,92 @@ public class BanClassUsage extends AbstractResolveDependencies
 
 	private List<String> scopes;
 
+	private MavenSession session;
+
+	private RepositorySystem repositorySystem;
+
+	private DependencyGraphBuilder graphBuilder;
+
+	@Inject
+	public BanClassUsage(MavenSession session, RepositorySystem repositorySystem,
+			DependencyGraphBuilder graphBuilder)
+	{
+		this.session = session;
+		this.repositorySystem = repositorySystem;
+		this.graphBuilder = graphBuilder;
+	}
+
 	@Override
+	public void execute() throws EnforcerRuleException
+	{
+
+		ProjectBuildingRequest buildingRequest =
+			new DefaultProjectBuildingRequest(session.getProjectBuildingRequest());
+		buildingRequest.setProject(session.getCurrentProject());
+
+		handleArtifacts(getDependenciesToCheck(buildingRequest));
+	}
+
+	private Set<Artifact> getDependenciesToCheck(ProjectBuildingRequest buildingRequest)
+			throws EnforcerRuleException
+	{
+		Set<Artifact> dependencies = null;
+		try
+		{
+			DependencyNode node = graphBuilder.buildDependencyGraph(buildingRequest, null);
+			dependencies = getAllDescendants(node);
+		}
+		catch (DependencyGraphBuilderException e)
+		{
+			throw new EnforcerRuleException(e.getMessage(), e);
+		}
+		return dependencies;
+	}
+
+	private Set<Artifact> getAllDescendants(DependencyNode node)
+	{
+		Set<Artifact> children = null;
+		if (node.getChildren() != null)
+		{
+			children = new HashSet<>();
+			for (DependencyNode depNode : node.getChildren())
+			{
+				try
+				{
+					Artifact artifact = depNode.getArtifact();
+					resolveArtifact(artifact);
+					children.add(artifact);
+
+					Set<Artifact> subNodes = getAllDescendants(depNode);
+
+					if (subNodes != null)
+					{
+						children.addAll(subNodes);
+					}
+				}
+				catch (ArtifactResolutionException e)
+				{
+					getLog().warn(e.getMessage());
+				}
+			}
+		}
+		return children;
+	}
+
+	private void resolveArtifact(Artifact artifact) throws ArtifactResolutionException
+	{
+		ArtifactRequest request = new ArtifactRequest();
+		request.setRepositories(session.getCurrentProject().getRemoteProjectRepositories());
+		request.setArtifact(RepositoryUtils.toArtifact(artifact));
+
+		ArtifactResult artifactResult =
+			repositorySystem.resolveArtifact(session.getRepositorySession(), request);
+
+		artifact.setFile(artifactResult.getArtifact().getFile());
+		artifact.setVersion(artifactResult.getArtifact().getVersion());
+		artifact.setResolved(true);
+	}
+
 	protected void handleArtifacts(Set<Artifact> artifacts) throws EnforcerRuleException
 	{
 		List<IgnorableDependency> ignorableDependencies = new ArrayList<>();
@@ -68,10 +168,7 @@ public class BanClassUsage extends AbstractResolveDependencies
 		{
 			if (scopes != null && !scopes.contains(artifact.getScope()))
 			{
-				if (getLog().isDebugEnabled())
-				{
-					getLog().debug("Skipping " + artifact + " due to scope");
-				}
+				getLog().debug("Skipping " + artifact + " due to scope");
 				continue;
 			}
 
@@ -90,6 +187,43 @@ public class BanClassUsage extends AbstractResolveDependencies
 			throw new EnforcerRuleException(
 				"One or more dependencies use classes that are banned:\n" + error.toString());
 		}
+	}
+
+	protected static String asRegex(String wildcard)
+	{
+		StringBuilder result = new StringBuilder(wildcard.length());
+		result.append('^');
+		for (int index = 0; index < wildcard.length(); index++)
+		{
+			char character = wildcard.charAt(index);
+			switch (character)
+			{
+				case '*':
+					result.append(".*");
+					break;
+				case '?':
+					result.append(".");
+					break;
+				case '$':
+				case '(':
+				case ')':
+				case '.':
+				case '[':
+				case '\\':
+				case ']':
+				case '^':
+				case '{':
+				case '|':
+				case '}':
+					result.append("\\");
+				default:
+					result.append(character);
+					break;
+			}
+		}
+		result.append("(\\.class)?");
+		result.append('$');
+		return result.toString();
 	}
 
 	private Set<String> getBannedClasses(Artifact artifact,
