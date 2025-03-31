@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>nl.topicus.onderwijs.parent</groupId>
 		<artifactId>onderwijs-parent-base</artifactId>
-		<version>2023.6.1</version>
+		<version>2025.2.1</version>
 		<relativePath />
 	</parent>
 
@@ -36,9 +36,14 @@
 	<dependencyManagement>
 		<dependencies>
 			<dependency>
+				<groupId>javax.inject</groupId>
+				<artifactId>javax.inject</artifactId>
+				<version>1</version>
+			</dependency>
+			<dependency>
 				<groupId>org.apache.maven.enforcer</groupId>
 				<artifactId>enforcer-api</artifactId>
-				<version>3.3.0</version>
+				<version>3.5.0</version>
 				<exclusions>
 					<exclusion>
 						<groupId>org.codehaus.plexus</groupId>
@@ -49,7 +54,7 @@
 			<dependency>
 				<groupId>org.apache.maven.enforcer</groupId>
 				<artifactId>enforcer-rules</artifactId>
-				<version>3.3.0</version>
+				<version>3.5.0</version>
 				<exclusions>
 					<exclusion>
 						<groupId>org.apache.maven</groupId>
@@ -72,6 +77,10 @@
 						<artifactId>plexus-i18n</artifactId>
 					</exclusion>
 					<exclusion>
+						<groupId>org.codehaus.plexus</groupId>
+						<artifactId>plexus-xml</artifactId>
+					</exclusion>
+					<exclusion>
 						<groupId>org.eclipse.aether</groupId>
 						<artifactId>aether-util</artifactId>
 					</exclusion>
@@ -80,12 +89,12 @@
 			<dependency>
 				<groupId>org.apache.maven.shared</groupId>
 				<artifactId>maven-common-artifact-filters</artifactId>
-				<version>3.3.2</version>
+				<version>3.4.0</version>
 			</dependency>
 			<dependency>
 				<groupId>org.apache.maven.shared</groupId>
 				<artifactId>maven-dependency-tree</artifactId>
-				<version>3.2.1</version>
+				<version>3.3.0</version>
 				<exclusions>
 					<exclusion>
 						<groupId>org.eclipse.aether</groupId>
@@ -96,7 +105,7 @@
 			<dependency>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>extra-enforcer-rules</artifactId>
-				<version>1.7.0</version>
+				<version>1.9.0</version>
 				<exclusions>
 					<exclusion>
 						<groupId>org.eclipse.aether</groupId>
@@ -161,9 +170,29 @@
                     </configuration>
 				</plugin>
 				<plugin>
+					<!-- Deze plugin enforcen met dezelfde ruleset als een JEE10 applicatie werkt niet-->
+					<!-- Daardoor zijn de bannedDependencies en bannedClassUsage effectief gedisabled -->
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-enforcer-plugin</artifactId>
+					<configuration>
+						<rules>
+							<bannedDependencies>
+								<excludes combine.children="override">
+									<exclude>dummy-exclude</exclude>
+								</excludes>
+							</bannedDependencies>
+							<banClassUsage>
+								<bannedClasses>
+									<bannedClass>dummy-exclude</bannedClass>
+								</bannedClasses>
+							</banClassUsage>
+						</rules>
+					</configuration>
+				</plugin>
+				<plugin>
 					<groupId>org.eclipse.sisu</groupId>
 					<artifactId>sisu-maven-plugin</artifactId>
-					<version>0.9.0.M1</version>
+					<version>0.9.0.M3</version>
 					<executions>
 						<execution>
 							<goals>
