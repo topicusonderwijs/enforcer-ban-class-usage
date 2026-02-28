@@ -133,10 +133,10 @@ public class BanClassUsage extends AbstractEnforcerRule
 		List<IgnorableDependency> ignorableDependencies = new ArrayList<>();
 		if (dependencies != null)
 		{
-			getLog().info("BanClassUsage has ignorable dependencies");
+			getLog().debug("BanClassUsage has ignorable dependencies");
 			for (Dependency dependency : dependencies)
 			{
-				getLog().info("Adding ignorable dependency: " + dependency);
+				getLog().debug("Adding ignorable dependency: " + dependency);
 				IgnorableDependency ignorableDependency = new IgnorableDependency();
 				if (dependency.getGroupId() != null)
 				{
@@ -327,7 +327,7 @@ public class BanClassUsage extends AbstractEnforcerRule
 			String prefix = indent ? "  " : "";
 			for (String ignore : ignores)
 			{
-				getLog().info(prefix + "Adding ignore: " + ignore);
+				getLog().debug(prefix + "Adding ignore: " + ignore);
 				ignore = ignore.replace('.', '/');
 				String pattern = asRegex(ignore);
 				getLog().debug(prefix + "Ignore: " + ignore + " maps to regex " + pattern);
