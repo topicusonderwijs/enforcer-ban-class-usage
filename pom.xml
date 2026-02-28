@@ -11,13 +11,13 @@
 
 	<groupId>nl.topicus.onderwijs.maven</groupId>
 	<artifactId>ban-class-usage</artifactId>
-	<version>1.6</version>
+	<version>1.7-SNAPSHOT</version>
 	<packaging>jar</packaging>
 
 	<scm>
 		<url>https://github.com/topicusonderwijs/enforcer-ban-class-usage</url>
 		<connection>scm:git:git@github.com:topicusonderwijs/enforcer-ban-class-usage.git</connection>
-		<tag>ban-class-usage-1.6</tag>
+		<tag>HEAD</tag>
 	</scm>
 
 	<distributionManagement>
