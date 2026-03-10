@@ -5,8 +5,8 @@
 	<parent>
 		<groupId>nl.topicus.onderwijs.parent</groupId>
 		<artifactId>onderwijs-parent-base</artifactId>
-		<version>2026.8</version>
-		<relativePath />
+		<version>2026.9</version>
+		<relativePath/>
 	</parent>
 
 	<groupId>nl.topicus.onderwijs.maven</groupId>
