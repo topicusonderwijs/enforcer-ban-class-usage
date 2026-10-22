@@ -6,11 +6,13 @@ import java.util.stream.Stream;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.ConstantDynamic;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.RecordComponentVisitor;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.TypePath;
 import org.objectweb.asm.signature.SignatureReader;
@@ -118,10 +120,7 @@ public class ClassDependencyCollector extends ClassVisitor
 		@Override
 		public void visitLdcInsn(Object value)
 		{
-			if (value instanceof Type)
-			{
-				addType((Type) value);
-			}
+			addConstant(value);
 		}
 
 		@Override
@@ -136,6 +135,7 @@ public class ClassDependencyCollector extends ClassVisitor
 		@Override
 		public void visitFieldInsn(int opcode, String owner, String name, String descriptor)
 		{
+			addOwner(owner);
 			addTypeDescriptor(descriptor);
 		}
 
@@ -143,6 +143,7 @@ public class ClassDependencyCollector extends ClassVisitor
 		public void visitMethodInsn(int opcode, String owner, String name, String descriptor,
 				boolean isInterface)
 		{
+			addOwner(owner);
 			addMethodDescriptor(descriptor);
 		}
 
@@ -151,6 +152,14 @@ public class ClassDependencyCollector extends ClassVisitor
 				Handle bootstrapMethodHandle, Object... bootstrapMethodArguments)
 		{
 			addMethodDescriptor(descriptor);
+			addConstant(bootstrapMethodHandle);
+			Stream.of(bootstrapMethodArguments).forEach(ClassDependencyCollector.this::addConstant);
+		}
+
+		@Override
+		public void visitTryCatchBlock(Label start, Label end, Label handler, String type)
+		{
+			addClass(type);
 		}
 
 		@Override
@@ -184,8 +193,33 @@ public class ClassDependencyCollector extends ClassVisitor
 		}
 	}
 
+	private class RecordComponentDependencyCollector extends RecordComponentVisitor
+	{
+		public RecordComponentDependencyCollector()
+		{
+			super(Opcodes.ASM9);
+		}
+
+		@Override
+		public AnnotationVisitor visitAnnotation(String descriptor, boolean visible)
+		{
+			addTypeDescriptor(descriptor);
+			return new AnnotationDependencyCollector();
+		}
+
+		@Override
+		public AnnotationVisitor visitTypeAnnotation(int typeRef, TypePath typePath,
+				String descriptor, boolean visible)
+		{
+			addTypeDescriptor(descriptor);
+			return new AnnotationDependencyCollector();
+		}
+	}
+
 	private class SignatureDependencyCollector extends SignatureVisitor
 	{
+		/** A nested class in a signature only names itself, relative to the class before it. */
+		private String currentClass;
 
 		public SignatureDependencyCollector()
 		{
@@ -243,19 +277,21 @@ public class ClassDependencyCollector extends ClassVisitor
 		@Override
 		public void visitClassType(String name)
 		{
+			currentClass = name;
 			addClass(name);
 		}
 
 		@Override
 		public void visitInnerClassType(String name)
 		{
-			addClass(name);
+			currentClass = currentClass + "$" + name;
+			addClass(currentClass);
 		}
 
 		@Override
 		public SignatureVisitor visitTypeArgument(char wildcard)
 		{
-			return this;
+			return new SignatureDependencyCollector();
 		}
 	}
 
@@ -314,6 +350,15 @@ public class ClassDependencyCollector extends ClassVisitor
 		return new AnnotationDependencyCollector();
 	}
 
+	@Override
+	public RecordComponentVisitor visitRecordComponent(String name, String descriptor,
+			String signature)
+	{
+		addTypeDescriptor(descriptor);
+		addTypeSignature(signature);
+		return new RecordComponentDependencyCollector();
+	}
+
 	private void addTypeSignature(String signature)
 	{
 		if (signature == null)
@@ -339,6 +384,44 @@ public class ClassDependencyCollector extends ClassVisitor
 	{
 		addType(Type.getReturnType(descriptor));
 		Stream.of(Type.getArgumentTypes(descriptor)).forEach(this::addType);
+	}
+
+	private void addOwner(String owner)
+	{
+		if (owner.startsWith("["))
+			addTypeDescriptor(owner);
+		else
+			addClass(owner);
+	}
+
+	/** A constant of an ldc instruction or a bootstrap method argument. */
+	private void addConstant(Object value)
+	{
+		if (value instanceof Type)
+		{
+			Type type = (Type) value;
+			if (type.getSort() == Type.METHOD)
+				addMethodDescriptor(type.getDescriptor());
+			else
+				addType(type);
+		}
+		else if (value instanceof Handle)
+		{
+			Handle handle = (Handle) value;
+			addOwner(handle.getOwner());
+			if (handle.getTag() <= Opcodes.H_PUTSTATIC)
+				addTypeDescriptor(handle.getDesc());
+			else
+				addMethodDescriptor(handle.getDesc());
+		}
+		else if (value instanceof ConstantDynamic)
+		{
+			ConstantDynamic constant = (ConstantDynamic) value;
+			addTypeDescriptor(constant.getDescriptor());
+			addConstant(constant.getBootstrapMethod());
+			for (int i = 0; i < constant.getBootstrapMethodArgumentCount(); i++)
+				addConstant(constant.getBootstrapMethodArgument(i));
+		}
 	}
 
 	private void addType(Type type)
