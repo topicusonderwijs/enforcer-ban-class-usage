@@ -97,6 +97,29 @@ class BannedClassMatcherTest
 	}
 
 	@Test
+	void shouldFindNestedClassOfGenericOuterClassInSignature()
+	{
+		byte[] classFile = generate(cw -> cw.visitField(Opcodes.ACC_PRIVATE, "list",
+			"Ljava/util/List;", "Ljava/util/List<Lbanned/Outer<Ljava/lang/String;>.Inner;>;", null));
+
+		assertThat(scan(new BannedClassMatcher(List.of("banned.Outer$Inner")), classFile))
+			.containsExactly("banned.Outer$Inner");
+		assertThat(scan(new BannedClassMatcher(List.of("banned.Outer$In*")), classFile))
+			.containsExactly("banned.Outer$Inner");
+	}
+
+	@Test
+	void shouldFindDoublyNestedClassOfGenericNestedClassInSignature()
+	{
+		byte[] classFile = generate(cw -> cw.visitField(Opcodes.ACC_PRIVATE, "list",
+			"Ljava/util/List;", "Ljava/util/List<Lbanned/Outer$Mid<Ljava/lang/String;>.Inner;>;",
+			null));
+
+		assertThat(scan(new BannedClassMatcher(List.of("banned.Outer$Mid$Inner")), classFile))
+			.containsExactly("banned.Outer$Mid$Inner");
+	}
+
+	@Test
 	void shouldNotSkipAnythingForNonAsciiBannedClass()
 	{
 		BannedClassMatcher nonAscii = new BannedClassMatcher(List.of("javax.cafè.*"));
@@ -105,6 +128,21 @@ class BannedClassMatcherTest
 
 		assertThat(nonAscii.mayReferenceBannedClass(classFile, 10,
 			new ClassReader(classFile).header)).isTrue();
+	}
+
+	/** Prefilter followed by a full parse, the way the rule scans a class file. */
+	private static Set<String> scan(BannedClassMatcher bannedClasses, byte[] classFile)
+	{
+		if (!bannedClasses.mayReferenceBannedClass(classFile, 10,
+			new ClassReader(classFile).header))
+			return Set.of();
+		ClassDependencyCollector collector = new ClassDependencyCollector();
+		new ClassReader(classFile).accept(collector, ClassReader.SKIP_DEBUG);
+		return collector.getDeps()
+			.stream()
+			.map(classname -> classname.replace("/", "."))
+			.filter(bannedClasses::matches)
+			.collect(Collectors.toSet());
 	}
 
 	private boolean mayReference(byte[] classFile)

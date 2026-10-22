@@ -38,7 +38,7 @@ class BannedClassMatcher
 				prefixes.add(name);
 			else
 				names.add(name);
-			needles.add(name.replace('.', '/'));
+			needles.add(outerClassPart(name.replace('.', '/')));
 		}
 		needlesByFirstByte = indexByFirstByte(needles);
 	}
@@ -64,6 +64,10 @@ class BannedClassMatcher
 	 * Every class a class file references is spelled out in internal form in a UTF8 entry of its
 	 * constant pool, so a class file whose constant pool does not contain a banned name can't
 	 * reference a banned class. A false positive only costs a full parse.
+	 * <p>
+	 * The exception is a nested class of a generic outer class in a signature, which is written as
+	 * {@code Outer<T>.Inner} instead of {@code Outer$Inner}. Only the part of a banned name before
+	 * its first {@code $} is certain to occur, so that is what is searched for.
 	 */
 	boolean mayReferenceBannedClass(byte[] classFile, int constantPoolStart, int constantPoolEnd)
 	{
@@ -81,6 +85,12 @@ class BannedClassMatcher
 			}
 		}
 		return false;
+	}
+
+	private static String outerClassPart(String internalName)
+	{
+		int nested = internalName.indexOf('$');
+		return nested < 0 ? internalName : internalName.substring(0, nested);
 	}
 
 	private static boolean regionMatches(byte[] bytes, int offset, int end, byte[] needle)
