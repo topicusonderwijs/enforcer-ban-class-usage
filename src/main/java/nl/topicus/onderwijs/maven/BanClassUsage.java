@@ -4,14 +4,19 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -28,6 +33,7 @@ import org.apache.maven.shared.dependency.graph.DependencyGraphBuilder;
 import org.apache.maven.shared.dependency.graph.DependencyGraphBuilderException;
 import org.apache.maven.shared.dependency.graph.DependencyNode;
 import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.SessionData;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
 import org.eclipse.aether.resolution.ArtifactResult;
@@ -36,6 +42,9 @@ import org.objectweb.asm.ClassReader;
 @Named("banClassUsage")
 public class BanClassUsage extends AbstractEnforcerRule
 {
+	/** Offset of the constant pool, after magic, minor_version, major_version and its count. */
+	private static final int CONSTANT_POOL_START = 10;
+
 	private List<String> bannedClasses;
 
 	private List<Dependency> dependencies;
@@ -161,6 +170,8 @@ public class BanClassUsage extends AbstractEnforcerRule
 			}
 		}
 
+		BannedClassMatcher matcher =
+			new BannedClassMatcher(bannedClasses == null ? List.of() : bannedClasses);
 		StopWatch sw = new StopWatch();
 		sw.start();
 		StringBuilder error = new StringBuilder();
@@ -173,7 +184,7 @@ public class BanClassUsage extends AbstractEnforcerRule
 			}
 
 			getLog().debug("Analyzing artifact " + artifact);
-			Set<String> banned = getBannedClasses(artifact, ignorableDependencies);
+			Set<String> banned = getBannedClasses(artifact, matcher, ignorableDependencies);
 			if (!banned.isEmpty())
 			{
 				error.append("\n  Banned classes found in " + artifact.toString() + ":\n");
@@ -226,7 +237,7 @@ public class BanClassUsage extends AbstractEnforcerRule
 		return result.toString();
 	}
 
-	private Set<String> getBannedClasses(Artifact artifact,
+	private Set<String> getBannedClasses(Artifact artifact, BannedClassMatcher matcher,
 			List<IgnorableDependency> ignorableDependencies) throws EnforcerRuleException
 	{
 		Set<String> ret = new TreeSet<>();
@@ -242,29 +253,91 @@ public class BanClassUsage extends AbstractEnforcerRule
 		{
 			return ret;
 		}
+		JarScan scan = getJarScan(file, matcher);
+		scan.warnings.forEach(getLog()::warn);
+		scan.bannedReferences.stream()
+			.filter(classname -> !isIgnored(artifact, classname, ignorableDependencies))
+			.forEach(ret::add);
+		return ret;
+	}
+
+	/**
+	 * Every module of a reactor build checks mostly the same jars, so each jar is scanned once per
+	 * build. The scans are kept in the repository session, which lives exactly as long as the build.
+	 */
+	private JarScan getJarScan(File file, BannedClassMatcher matcher) throws EnforcerRuleException
+	{
+		ConcurrentMap<List<Object>, CompletableFuture<JarScan>> scans = getJarScans();
+		List<Object> key = List.of(file.getAbsolutePath(), file.length(), file.lastModified(),
+			matcher.getBannedClasses());
+		CompletableFuture<JarScan> scan = new CompletableFuture<>();
+		CompletableFuture<JarScan> existing = scans.putIfAbsent(key, scan);
+		if (existing != null)
+		{
+			scan = existing;
+		}
+		else
+		{
+			try
+			{
+				scan.complete(scanJar(file, matcher));
+			}
+			catch (EnforcerRuleException | RuntimeException e)
+			{
+				scans.remove(key, scan);
+				scan.completeExceptionally(e);
+			}
+		}
+		try
+		{
+			return scan.join();
+		}
+		catch (CompletionException e)
+		{
+			if (e.getCause() instanceof EnforcerRuleException)
+				throw (EnforcerRuleException) e.getCause();
+			throw e;
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private ConcurrentMap<List<Object>, CompletableFuture<JarScan>> getJarScans()
+	{
+		SessionData data = session.getRepositorySession().getData();
+		data.set(JarScan.class, null, new ConcurrentHashMap<>());
+		return (ConcurrentMap<List<Object>, CompletableFuture<JarScan>>) data.get(JarScan.class);
+	}
+
+	private JarScan scanJar(File file, BannedClassMatcher matcher) throws EnforcerRuleException
+	{
+		Set<String> bannedReferences = new HashSet<>();
+		List<String> warnings = new ArrayList<>();
 		try (JarFile jarFile = new JarFile(file))
 		{
 			getLog().debug(file.getName() + " => " + file.getPath());
-			for (JarEntry entry : jarFile.stream().collect(Collectors.toList()))
+			for (JarEntry entry : Collections.list(jarFile.entries()))
 			{
 				if (!entry.isDirectory() && entry.getName().endsWith(".class"))
 				{
 					try (InputStream is = jarFile.getInputStream(entry))
 					{
 						getLog().debug("Checking " + entry.getName());
-						ClassReader reader = new ClassReader(is);
+						byte[] classFile = is.readAllBytes();
+						ClassReader reader = new ClassReader(classFile);
+						if (!matcher.mayReferenceBannedClass(classFile, CONSTANT_POOL_START,
+							reader.header))
+							continue;
 						ClassDependencyCollector collector = new ClassDependencyCollector();
 						reader.accept(collector, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 						collector.getDeps()
 							.stream()
 							.map(classname -> classname.replace("/", "."))
-							.filter(
-								classname -> isBanned(artifact, classname, ignorableDependencies))
-							.forEach(ret::add);
+							.filter(matcher::matches)
+							.forEach(bannedReferences::add);
 					}
 					catch (Exception e)
 					{
-						getLog().warn("Skipping " + entry.getName() + " due to " + e.getMessage());
+						warnings.add("Skipping " + entry.getName() + " due to " + e.getMessage());
 					}
 				}
 			}
@@ -277,25 +350,7 @@ public class BanClassUsage extends AbstractEnforcerRule
 		{
 			throw new EnforcerRuleException("Error while reading " + file, e);
 		}
-		return ret;
-	}
-
-	private boolean isBanned(Artifact artifact, String classname,
-			List<IgnorableDependency> ignorableDependencies)
-	{
-		for (String bannedClass : bannedClasses)
-		{
-			if (bannedClass.endsWith("*"))
-			{
-				if (classname.startsWith(bannedClass.substring(0, bannedClass.length() - 1)))
-					return !isIgnored(artifact, classname, ignorableDependencies);
-			}
-			else if (classname.equals(bannedClass))
-			{
-				return !isIgnored(artifact, classname, ignorableDependencies);
-			}
-		}
-		return false;
+		return new JarScan(bannedReferences, warnings);
 	}
 
 	private boolean isIgnored(Artifact artifact, String classname,
@@ -308,6 +363,19 @@ public class BanClassUsage extends AbstractEnforcerRule
 				return true;
 		}
 		return false;
+	}
+
+	private static final class JarScan
+	{
+		private final Set<String> bannedReferences;
+
+		private final List<String> warnings;
+
+		private JarScan(Set<String> bannedReferences, List<String> warnings)
+		{
+			this.bannedReferences = Set.copyOf(bannedReferences);
+			this.warnings = List.copyOf(warnings);
+		}
 	}
 
 	protected class IgnorableDependency
@@ -340,7 +408,8 @@ public class BanClassUsage extends AbstractEnforcerRule
 		{
 			return (artifactId == null || artifactId.matcher(dup.getArtifactId()).matches())
 				&& (groupId == null || groupId.matcher(dup.getGroupId()).matches())
-				&& (classifier == null || classifier.matcher(dup.getClassifier()).matches())
+				&& (classifier == null
+					|| classifier.matcher(Objects.toString(dup.getClassifier(), "")).matches())
 				&& (type == null || type.matcher(dup.getType()).matches());
 		}
 
