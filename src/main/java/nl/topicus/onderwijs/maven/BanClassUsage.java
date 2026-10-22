@@ -282,8 +282,9 @@ public class BanClassUsage extends AbstractEnforcerRule
 			{
 				scan.complete(scanJar(file, matcher));
 			}
-			catch (EnforcerRuleException | RuntimeException e)
+			catch (Throwable e)
 			{
+				// Also on an Error, otherwise modules waiting for this scan would block forever.
 				scans.remove(key, scan);
 				scan.completeExceptionally(e);
 			}
@@ -294,8 +295,13 @@ public class BanClassUsage extends AbstractEnforcerRule
 		}
 		catch (CompletionException e)
 		{
-			if (e.getCause() instanceof EnforcerRuleException)
-				throw (EnforcerRuleException) e.getCause();
+			Throwable cause = e.getCause();
+			if (cause instanceof EnforcerRuleException)
+				throw (EnforcerRuleException) cause;
+			if (cause instanceof RuntimeException)
+				throw (RuntimeException) cause;
+			if (cause instanceof Error)
+				throw (Error) cause;
 			throw e;
 		}
 	}
