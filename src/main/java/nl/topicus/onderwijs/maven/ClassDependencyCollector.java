@@ -1,7 +1,7 @@
 package nl.topicus.onderwijs.maven;
 
+import java.util.HashSet;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Stream;
 
 import org.objectweb.asm.AnnotationVisitor;
@@ -18,7 +18,7 @@ import org.objectweb.asm.signature.SignatureVisitor;
 
 public class ClassDependencyCollector extends ClassVisitor
 {
-	public Set<String> deps = new TreeSet<>();
+	public Set<String> deps = new HashSet<>();
 
 	private class AnnotationDependencyCollector extends AnnotationVisitor
 	{
