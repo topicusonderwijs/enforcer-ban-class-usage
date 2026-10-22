@@ -87,9 +87,10 @@ The rule builds the full dependency graph of the project, resolves every artifac
 A class counts as used when it appears in:
 
 - the superclass, the implemented interfaces or the outer class of a nested class;
-- the types and generic signatures of fields and methods, and the exceptions a method declares;
+- the types and generic signatures of fields, methods and record components, and the exceptions a method declares;
 - annotations, including class literals and enum constants in annotation values;
-- the instructions of method bodies: `new`, casts and `instanceof`, array creation, class literals, and the parameter and return types of called methods, the types of accessed fields, and the types in the descriptor of `invokedynamic` call sites such as lambdas.
+- the instructions of method bodies: `new`, casts and `instanceof`, array creation, class literals, caught exception types, and the classes of called methods and accessed fields together with their parameter, return and field types;
+- method references, lambdas and other `invokedynamic` call sites, including their bootstrap methods and arguments, and method handles and dynamic constants loaded with `ldc`.
 
 Debug information such as local variable tables is ignored. A class file that can't be read is skipped with a warning; a jar that can't be opened fails the build.
 
