@@ -5,8 +5,8 @@
 	<parent>
 		<groupId>nl.topicus.onderwijs.parent</groupId>
 		<artifactId>onderwijs-parent-base</artifactId>
-		<version>2026.58-ee11</version>
-		<relativePath />
+		<version>2026.62-ee11</version>
+		<relativePath/>
 	</parent>
 
 	<groupId>nl.topicus.onderwijs.maven</groupId>
@@ -36,7 +36,7 @@
 
 	<properties>
 		<!-- de surefire-configuratie uit onderwijs-parent verwacht een argLine -->
-		<argLine />
+		<argLine/>
 	</properties>
 
 	<dependencyManagement>
